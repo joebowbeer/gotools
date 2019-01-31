@@ -175,10 +175,11 @@ func organizationRepositoryNames(client githubv4.Client, orgName string) ([]stri
 			return nil, err
 		}
 		names = append(names, query.Organization.Repositories.Nodes.Names()...)
-		if !query.Organization.Repositories.PageInfo.HasNextPage {
+		pageInfo := query.Organization.Repositories.PageInfo
+		if !pageInfo.HasNextPage {
 			break
 		}
-		variables["after"] = githubv4.String(query.Organization.Repositories.PageInfo.EndCursor)
+		variables["after"] = githubv4.String(pageInfo.EndCursor)
 	}
 	return names, nil
 }
@@ -253,10 +254,11 @@ func repositoryPullRequests(client githubv4.Client, orgName string, repoName str
 			return nil, err
 		}
 		pullRequests = append(pullRequests, query.Repository.PullRequests.Nodes.InRange(since, until)...)
-		if !query.Repository.PullRequests.PageInfo.HasNextPage {
+		pageInfo := query.Repository.PullRequests.PageInfo
+		if !pageInfo.HasNextPage {
 			break
 		}
-		variables["after"] = githubv4.String(query.Repository.PullRequests.PageInfo.EndCursor)
+		variables["after"] = githubv4.String(pageInfo.EndCursor)
 	}
 	return pullRequests, nil
 }
@@ -325,10 +327,11 @@ func repositoryCommits(client githubv4.Client, orgName string, repoName string, 
 			return nil, err
 		}
 		commits = append(commits, query.Repository.DefaultBranchRef.Target.Commit.History.Nodes.Commits()...)
-		if !query.Repository.DefaultBranchRef.Target.Commit.History.PageInfo.HasNextPage {
+		pageInfo := query.Repository.DefaultBranchRef.Target.Commit.History.PageInfo
+		if !pageInfo.HasNextPage {
 			break
 		}
-		variables["after"] = githubv4.String(query.Repository.DefaultBranchRef.Target.Commit.History.PageInfo.EndCursor)
+		variables["after"] = githubv4.String(pageInfo.EndCursor)
 	}
 	return commits, nil
 }
