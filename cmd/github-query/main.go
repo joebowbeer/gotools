@@ -3,8 +3,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"time"
 
@@ -13,7 +15,7 @@ import (
 )
 
 var (
-	listName string
+	listType string
 	orgName  string
 	repoName string
 	sinceStr string
@@ -21,7 +23,7 @@ var (
 )
 
 func init() {
-	flag.StringVar(&listName, "list", "", "<repos|commits|pull-requests> (Required)")
+	flag.StringVar(&listType, "list", "", "<repos|commits|pull-requests> (Required)")
 	flag.StringVar(&orgName, "org", "", "Organization name (Required)")
 	flag.StringVar(&repoName, "repo", "", "Repository name (Required except to list repos)")
 	flag.StringVar(&sinceStr, "since", "", "Start of date range (YYYY-MM-DD)")
@@ -32,13 +34,13 @@ func main() {
 	flag.Parse()
 	// TODO: complain about unused args
 
-	if orgName == "" {
-		fmt.Fprintln(os.Stderr, "Missing option: org")
+	if err := validateOptions(listType, orgName, repoName); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		printUsage()
 	}
 
-	var since = parseDate(sinceStr, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
-	var until = parseDate(untilStr, time.Now())
+	since := parseDate(sinceStr, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+	until := parseDate(untilStr, time.Now())
 
 	token, ok := os.LookupEnv("GITHUB_TOKEN")
 	if !ok {
@@ -48,28 +50,17 @@ func main() {
 	tokenSource := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	client := githubv4.NewClient(oauth2.NewClient(context.Background(), tokenSource))
 
-	var cmd func() (interface{}, error)
-	switch listName {
-	case "repos":
-		// TODO: unused repoName, since and until
-		cmd = func() (interface{}, error) {
+	cmd := func() (interface{}, error) {
+		switch listType {
+		case "repos":
 			return organizationRepositoryNames(*client, orgName)
-		}
-		break
-	case "commits":
-		requireRepoName()
-		cmd = func() (interface{}, error) {
+		case "commits":
 			return repositoryCommits(*client, orgName, repoName, since, until)
-		}
-		break
-	case "pull-requests":
-		requireRepoName()
-		cmd = func() (interface{}, error) {
+		case "pull-requests":
 			return repositoryPullRequests(*client, orgName, repoName, since, until)
+		default:
+			panic("invalid list type")
 		}
-		break
-	default:
-		printUsage()
 	}
 
 	res, err := cmd()
@@ -77,7 +68,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	printJSON(res)
+	printJSON(res, os.Stdout)
 }
 
 // Prints usage and exits
@@ -85,6 +76,33 @@ func printUsage() {
 	flag.Usage()
 	fmt.Fprintln(os.Stderr, "\nThe GITHUB_TOKEN environment variable is required.")
 	os.Exit(1)
+}
+
+func validateOptions(listOpt string, orgOpt string, repoOpt string) error {
+	if listOpt == "" {
+		return errors.New("Missing option: list")
+	}
+	if orgOpt == "" {
+		return errors.New("Missing option: org")
+	}
+	switch listOpt {
+	case "repos":
+		if repoOpt != "" {
+			return errors.New("Incompatible option: repo")
+		}
+		// TODO: complain about unused since or until?
+		break
+	case "commits":
+		fallthrough
+	case "pull-requests":
+		if repoOpt == "" {
+			return errors.New("Missing option: repo")
+		}
+		break
+	default:
+		return fmt.Errorf("Invalid list option: %s", listOpt)
+	}
+	return nil
 }
 
 // Parses the given timestr if not empty, else returns the provided default value.
@@ -101,20 +119,11 @@ func parseDate(timestr string, timedef time.Time) time.Time {
 	return timedef
 }
 
-// Bails if repoName option is empty
-func requireRepoName() {
-	if repoName == "" {
-		fmt.Fprintln(os.Stderr, "Missing option: repo")
-		printUsage()
-	}
-}
-
-// Prints v as JSON to stdout. Panics on any error.
-func printJSON(v interface{}) {
-	enc := json.NewEncoder(os.Stdout)
+// Prints v as JSON to writer w. Panics on any error.
+func printJSON(v interface{}, w io.Writer) {
+	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
-	err := enc.Encode(v)
-	if err != nil {
+	if err := enc.Encode(v); err != nil {
 		panic(err)
 	}
 }
@@ -165,8 +174,7 @@ func organizationRepositoryNames(client githubv4.Client, orgName string) ([]stri
 	// Handle pagination
 	var names []string
 	for {
-		err := client.Query(context.Background(), &query, variables)
-		if err != nil {
+		if err := client.Query(context.Background(), &query, variables); err != nil {
 			return nil, err
 		}
 		names = append(names, query.Organization.Repositories.Nodes.Names()...)
@@ -244,8 +252,7 @@ func repositoryPullRequests(client githubv4.Client, orgName string, repoName str
 	// Handle pagination
 	var pullRequests []PullRequestNode
 	for {
-		err := client.Query(context.Background(), &query, variables)
-		if err != nil {
+		if err := client.Query(context.Background(), &query, variables); err != nil {
 			return nil, err
 		}
 		pullRequests = append(pullRequests, query.Repository.PullRequests.Nodes.InRange(since, until)...)
@@ -317,8 +324,7 @@ func repositoryCommits(client githubv4.Client, orgName string, repoName string, 
 	// Handle pagination
 	var commits []CommitData
 	for {
-		err := client.Query(context.Background(), &query, variables)
-		if err != nil {
+		if err := client.Query(context.Background(), &query, variables); err != nil {
 			return nil, err
 		}
 		commits = append(commits, query.Repository.DefaultBranchRef.Target.Commit.History.Nodes.Commits()...)
