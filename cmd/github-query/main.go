@@ -39,7 +39,7 @@ func main() {
 		printUsage()
 	}
 
-	since := parseDate(sinceStr, time.Date(1970, 1, 1, 0, 0, 0, 0, time.UTC))
+	since := parseDate(sinceStr, time.Unix(0, 0)) // default is 1970-01-01
 	until := parseDate(untilStr, time.Now())
 
 	token, ok := os.LookupEnv("GITHUB_TOKEN")
@@ -74,7 +74,7 @@ func main() {
 // Prints usage and exits
 func printUsage() {
 	flag.Usage()
-	fmt.Fprintln(os.Stderr, "\nThe GITHUB_TOKEN environment variable is required.")
+	fmt.Fprintln(os.Stderr, "\nNote: GITHUB_TOKEN environment variable is required.")
 	os.Exit(1)
 }
 
@@ -91,10 +91,7 @@ func validateOptions(listOpt string, orgOpt string, repoOpt string) error {
 			return errors.New("Incompatible option: repo")
 		}
 		// TODO: complain about unused since or until?
-		break
-	case "commits":
-		fallthrough
-	case "pull-requests":
+	case "commits", "pull-requests":
 		if repoOpt == "" {
 			return errors.New("Missing option: repo")
 		}
